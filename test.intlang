@@ -1,0 +1,4 @@
+test[x]
+where
+    x = 456 * 3;
+    test = \n → n + n * x;

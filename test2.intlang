@@ -1,0 +1,35 @@
+
+
+
+loop[(\n → print[fib[n]]) 0 input[] 1]
+where
+    fib = \n →
+        if n then
+            if n - 1 then
+                fib[n - 1] + fib[n - 2]
+            else
+                1
+            end
+        else
+            0
+        end
+    ;
+    loop = \f from to step →
+        if lt[from to] where
+            lt = \a b →
+                if a then
+                    if b then
+                        lt[a-1 b-1]
+                    else
+                        0
+                    end
+                else
+                    1
+                end
+            ;
+        then
+            f[from], loop[f from+step to step]
+        else
+            nil
+        end
+    ;

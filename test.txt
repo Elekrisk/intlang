@@ -1,0 +1,147 @@
+
+Function [2]
+    ArgumentCount: 0
+    VariableCount: 2
+    CaptureCount: 0
+{
+    # Setup fib
+    PushFunction ID: 3 Captures: 0      # 0
+    SetVariable ID: 0                   # 1
+
+    # Setup loop
+    PushFunction ID: 4 Captures: 1      # 2
+    SetVariable ID: 1                   # 3
+
+    PushFunction ID: 6 Captures: 0      # 4
+    PushInteger Value: 0                # 5
+    PushFunction ID: 1 Captures:        # 6
+    Call ArgumentCount: 0               # 7
+    PushInteger Value: 1                # 8
+    GetVariable ID: 1                   # 9
+    Call ArgumentCount: 4               # 10
+
+    Ret                                 # 11
+}
+
+# fib
+Function [3]
+    ArgumentCount: 1
+    VariableCount: 0
+    CaptureCount: 1
+{
+    GetVariable ID: 0                    # 0
+    If Offset: 2                         # 1
+    
+    # if false
+    PushInteger Value: 0                # 2
+    Ret                                 # 3
+    
+    # if true
+    GetVariable ID: 0                   # 4
+    PushInteger Value: 1                # 5
+    Sub                                 # 6
+    If Offset: 2                        # 7
+
+    # if false
+    PushInteger Value: 1                # 8
+    Ret                                 # 9
+
+    # if true
+    GetVariable ID: 0                   # 10
+    PushInteger Value: 1                # 11
+    Sub                                 # 12
+    GetVariable ID: 1                   # 13
+    Call ArgumentCount: 1               # 14
+
+    GetVariable ID: 0                   # 15
+    PushInteger Value: 2                # 16
+    Sub                                 # 17
+    GetVariable ID: 1                   # 18
+    Call ArgumentCount: 1               # 19
+
+    Add                                 # 20
+    Ret                                 # 21
+}
+
+# loop
+Function [4]
+    ArgumentCount: 4
+    VariableCount: 1
+    CaptureCount: 1
+{
+    # Setup lt
+    PushFunction ID: 5 Captures: 4      # 0
+    SetVariable ID: 4                   # 1
+
+    GetVariable ID: 1                   # 2
+    GetVariable ID: 2                   # 3
+    GetVariable ID: 4                   # 4
+    Call ArgumentCount: 2               # 5
+    If Offset: 2                        # 6
+        PushNil                         # 7
+        Ret                             # 8
+    
+    GetVariable ID: 1                   # 9
+    GetVariable ID: 0                   # 10
+    Call ArgumentCount: 1               # 11
+    Pop                                 # 12
+
+    GetVariable ID: 0                   # 13
+    GetVariable ID: 1                   # 14
+    GetVariable ID: 3                   # 15
+    Add                                 # 16
+    GetVariable ID: 2                   # 17
+    GetVariable ID: 3                   # 18
+    GetVariable ID: 5                   # 19
+    Call ArgumentCount: 4               # 20
+    Ret                                 # 21
+}
+
+# loop > lt
+Function [5]
+    ArgumentCount: 2
+    VariableCount: 0
+    CaptureCount: 1
+{
+    GetVariable ID: 0                   # 0
+    If Offset: 2                        # 1
+
+    # if false
+    PushInteger Value: 1                # 2
+    Ret                                 # 3
+
+    # if true
+    GetVariable ID: 1                   # 4
+    If Offset: 2                        # 5
+
+    # if false
+    PushInteger Value: 0                # 6
+    Ret                                 # 7
+
+    # if true
+    GetVariable ID: 0                   # 8
+    PushInteger Value: 1                # 9
+    Sub                                 # 10
+
+    GetVariable ID: 1                   # 11
+    PushInteger Value: 1                # 12
+    Sub                                 # 13
+
+    GetVariable ID: 2                   # 14
+    Call ArgumentCount: 2               # 15
+    Ret                                 # 16
+}
+
+# \n → print[n]
+Function [6]
+    ArgumentCount: 1
+    VariableCount: 0
+    CaptureCount: 1
+{
+    GetVariable ID: 0                   # 0
+    GetVariable ID: 1                   # 1
+    Call ArgumentCount: 1               # 2
+    PushFunction ID: 0 Captures:        # 3
+    Call ArgumentCount: 1               # 4
+    Ret                                 # 5
+}
