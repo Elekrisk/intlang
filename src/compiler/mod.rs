@@ -32,7 +32,6 @@ pub struct Compiler<'comp, 'a> {
     function_ids: HashMap<Id<Expression<'a>>, Id<Function<'comp, 'a>>>,
     functions: HashMap<Id<Function<'comp, 'a>>, Function<'comp, 'a>>,
     variable_ids: HashMap<Id<()>, VariableId>,
-    variable_graph: HashMap<VariableId, Vec<VariableId>>,
 }
 
 #[derive(Debug)]
@@ -100,10 +99,6 @@ impl<'comp, 'a> Compiler<'comp, 'a> {
 
         c.visit_expr(expr);
     }
-
-    fn create_variable_graph(&mut self, expr: &'comp Expression<'a>) {
-        
-    }
 }
 
 struct VariableGraphCreator<'s, 'comp, 'a> {
@@ -114,6 +109,7 @@ struct FunctionBuilder<'s, 'comp, 'a> {
     compiler: &'s Compiler<'comp, 'a>,
     context: &'s Context,
     module: Module<'s>,
+    builder: Builder<'s>,
 
     value_type: PointerType<'s>,
     backing_store_type: StructType<'s>,
@@ -125,8 +121,27 @@ struct FunctionBuilder<'s, 'comp, 'a> {
 
 Backing store: {
     count: usize,
-    type: u8,
-    data: ...
+    val: Value
+}
+
+struct Value: {
+    type: Type,
+    val: ValueData
+}
+
+enum Type {
+    Nil = 0,
+    Int = 1,
+    Func = 2,
+    Var = 3
+}
+
+struct ValueData:Var {
+    ptr: store*
+}
+
+struct ValueData:Int {
+    ptr: void*
 }
 
 Int data: void* (passed into int-manipulating functions)
@@ -143,6 +158,7 @@ Lambda data: {
 impl<'s, 'comp, 'a> FunctionBuilder<'s, 'comp, 'a> {
     fn new(compiler: &'s Compiler<'comp, 'a>, context: &'s Context) -> Self {
         let module = context.create_module("main");
+        let builder = context.create_builder();
 
         let backing_store_type = context.struct_type(
             &[
@@ -169,15 +185,17 @@ impl<'s, 'comp, 'a> FunctionBuilder<'s, 'comp, 'a> {
             compiler,
             context,
             module,
+            builder,
             value_type,
             backing_store_type,
             int_data_type,
             lambda_data_type,
         }
     }
-    fn build_func(&mut self, id: Id<Function>, func: &Function) {
+
+    fn build_func(&mut self, id: Id<Function>, function: &'s Function<'comp, 'a>) {
         let ty = self.value_type.fn_type(
-            &func
+            &function
                 .arguments
                 .iter()
                 .map(|_| self.value_type.into())
@@ -186,8 +204,18 @@ impl<'s, 'comp, 'a> FunctionBuilder<'s, 'comp, 'a> {
         );
         let func = self.module.add_function(&format!("func-{id}"), ty, None);
         let entry = self.context.append_basic_block(func, "entry");
-        let builder = self.context.create_builder();
-        builder.position_at_end(entry);
+        self.builder.position_at_end(entry);
+        self.visit_expr(function.expr);
+    }
+
+    fn build_nil_value(&mut self) {
+        self.context.i8
+    }
+}
+
+impl<'s, 'comp, 'a> Visitor<'comp, 'a, ()> for FunctionBuilder<'s, 'comp, 'a> {
+    fn visit_expr_nil(&mut self, expr: &'comp Expression<'a>) -> () {
+        self.build_nil_value();
     }
 }
 
@@ -196,7 +224,7 @@ struct FunctionIdAllocator<'s, 'comp, 'a> {
     id_gen: &'s mut IdGen,
 }
 
-impl<'s, 'comp, 'a> Visitor<'comp, 'a> for FunctionIdAllocator<'s, 'comp, 'a> {
+impl<'s, 'comp, 'a> Visitor<'comp, 'a, ()> for FunctionIdAllocator<'s, 'comp, 'a> {
     fn visit_expr_lambda(
         &mut self,
         expr: &'comp Expression<'a>,
@@ -226,7 +254,7 @@ struct VariableAllocator<'s, 'comp, 'a> {
     cur_func: Id<Function<'comp, 'a>>,
 }
 
-impl<'s, 'comp, 'a> Visitor<'comp, 'a> for VariableAllocator<'s, 'comp, 'a> {
+impl<'s, 'comp, 'a> Visitor<'comp, 'a, ()> for VariableAllocator<'s, 'comp, 'a> {
     fn visit_where_clause(&mut self, where_clause: &'comp WhereClause<'a>) {
         for stmnt in &where_clause.stmnts {
             let id = self.compiler.variable_ids[&stmnt.name.id];
@@ -290,7 +318,7 @@ struct VariableIdCollector<'s, 'comp, 'a> {
     id_gen: &'s mut IdGen,
 }
 
-impl<'s, 'comp, 'a> Visitor<'comp, 'a> for VariableIdCollector<'s, 'comp, 'a> {
+impl<'s, 'comp, 'a> Visitor<'comp, 'a ,()> for VariableIdCollector<'s, 'comp, 'a> {
     fn visit_expr(&mut self, expr: &'comp Expression<'a>) {
         let needs_pop = if let Some(w) = &expr.where_clause {
             self.mapping.last_mut().unwrap().push(HashMap::new());
@@ -350,32 +378,51 @@ impl<'s, 'comp, 'a> Visitor<'comp, 'a> for VariableIdCollector<'s, 'comp, 'a> {
     }
 }
 
-trait Visitor<'comp, 'a> {
-    fn visit_where_clause(&mut self, where_clause: &'comp WhereClause<'a>) {
+trait Combine {
+    fn empty() -> Self;
+    fn combine(self, other: Self) -> Self;
+}
+
+impl Combine for () {
+    fn empty() -> Self {
+        ()
+    }
+
+    fn combine(self, other: Self) -> Self {
+        self
+    }
+}
+
+trait Visitor<'comp, 'a, Ret: Combine> {
+    fn visit_where_clause(&mut self, where_clause: &'comp WhereClause<'a>) -> Ret {
         self.walk_where_clause(where_clause)
     }
-    fn walk_where_clause(&mut self, where_clause: &'comp WhereClause<'a>) {
+    fn walk_where_clause(&mut self, where_clause: &'comp WhereClause<'a>) -> Ret {
+        let mut ret = Ret::empty();
         for stmnt in &where_clause.stmnts {
-            self.visit_stmnt(stmnt)
+            ret = ret.combine(self.visit_stmnt(stmnt))
         }
+        ret
     }
 
-    fn visit_stmnt(&mut self, stmnt: &'comp Statement<'a>) {
+    fn visit_stmnt(&mut self, stmnt: &'comp Statement<'a>) -> Ret {
         self.walk_stmnt(stmnt)
     }
-    fn walk_stmnt(&mut self, stmnt: &'comp Statement<'a>) {
-        self.visit_ident(stmnt.name);
-        self.visit_expr(&stmnt.expr);
+    fn walk_stmnt(&mut self, stmnt: &'comp Statement<'a>) -> Ret {
+        let a = self.visit_ident(stmnt.name);
+        let b =self.visit_expr(&stmnt.expr);
+        a.combine(b)
     }
 
-    fn visit_ident(&mut self, _ident: T<&str>) {}
+    fn visit_ident(&mut self, _ident: T<&str>) -> Ret { Ret::empty() }
 
-    fn visit_expr(&mut self, expr: &'comp Expression<'a>) {
-        self.walk_expr(expr);
+    fn visit_expr(&mut self, expr: &'comp Expression<'a>) -> Ret {
+        self.walk_expr(expr)
     }
-    fn walk_expr(&mut self, expr: &'comp Expression<'a>) {
+    fn walk_expr(&mut self, expr: &'comp Expression<'a>) -> Ret {
+        let mut ret = Ret::empty();
         if let Some(w) = &expr.where_clause {
-            self.visit_where_clause(w);
+            ret = ret.combine(self.visit_where_clause(w));
         }
         match &expr.kind {
             ExpressionKind::Nil(_) => self.visit_expr_nil(expr),
@@ -407,11 +454,11 @@ trait Visitor<'comp, 'a> {
         }
     }
 
-    fn visit_expr_nil(&mut self, expr: &'comp Expression<'a>) {}
+    fn visit_expr_nil(&mut self, expr: &'comp Expression<'a>) -> Ret { Ret::empty() }
 
-    fn visit_expr_literal(&mut self, expr: &'comp Expression<'a>, val: &T<BigInt>) {}
+    fn visit_expr_literal(&mut self, expr: &'comp Expression<'a>, val: &T<BigInt>) -> Ret { Ret::empty() }
 
-    fn visit_expr_variable(&mut self, expr: &'comp Expression<'a>, var: &T<&str>) {}
+    fn visit_expr_variable(&mut self, expr: &'comp Expression<'a>, var: &T<&str>) -> Ret { Ret::empty() }
 
     fn visit_expr_lambda(
         &mut self,
@@ -420,8 +467,8 @@ trait Visitor<'comp, 'a> {
         params: &Vec<T<&'a str>>,
         arrow: &T<()>,
         body: &'comp Box<Expression<'a>>,
-    ) {
-        self.walk_expr_lambda(expr, bs, params, arrow, body);
+    ) -> Ret {
+        self.walk_expr_lambda(expr, bs, params, arrow, body)
     }
     fn walk_expr_lambda(
         &mut self,
@@ -430,18 +477,19 @@ trait Visitor<'comp, 'a> {
         params: &Vec<T<&'a str>>,
         arrow: &T<()>,
         body: &'comp Box<Expression<'a>>,
-    ) {
+    ) -> Ret {
+        let mut ret = Ret::empty();
         for param in params {
-            self.visit_ident(*param);
+            ret = ret.combine(self.visit_ident(*param));
         }
-        self.visit_expr(body);
+        ret.combine(self.visit_expr(body))
     }
 
-    fn visit_expr_lambda_param(&mut self, param: T<&str>) {
-        self.walk_expr_lambda_param(param);
+    fn visit_expr_lambda_param(&mut self, param: T<&str>) -> Ret {
+        self.walk_expr_lambda_param(param)
     }
-    fn walk_expr_lambda_param(&mut self, param: T<&str>) {
-        self.visit_ident(param);
+    fn walk_expr_lambda_param(&mut self, param: T<&str>) -> Ret {
+        self.visit_ident(param)
     }
 
     fn visit_expr_unary(
@@ -449,16 +497,16 @@ trait Visitor<'comp, 'a> {
         expr: &'comp Expression<'a>,
         op: &T<UnaryOp>,
         inner: &'comp Box<Expression<'a>>,
-    ) {
-        self.walk_expr_unary(expr, op, inner);
+    ) -> Ret {
+        self.walk_expr_unary(expr, op, inner)
     }
     fn walk_expr_unary(
         &mut self,
         expr: &'comp Expression<'a>,
         op: &T<UnaryOp>,
         inner: &'comp Box<Expression<'a>>,
-    ) {
-        self.visit_expr(inner);
+    ) -> Ret {
+        self.visit_expr(inner)
     }
 
     fn visit_expr_binary(
@@ -467,8 +515,8 @@ trait Visitor<'comp, 'a> {
         left: &'comp Box<Expression<'a>>,
         op: &T<BinaryOp>,
         right: &'comp Box<Expression<'a>>,
-    ) {
-        self.walk_expr_binary(expr, left, op, right);
+    ) -> Ret {
+        self.walk_expr_binary(expr, left, op, right)
     }
     fn walk_expr_binary(
         &mut self,
@@ -476,9 +524,10 @@ trait Visitor<'comp, 'a> {
         left: &'comp Box<Expression<'a>>,
         op: &T<BinaryOp>,
         right: &'comp Box<Expression<'a>>,
-    ) {
-        self.visit_expr(left);
-        self.visit_expr(right);
+    ) -> Ret {
+        let a = self.visit_expr(left);
+        let b = self.visit_expr(right);
+        a.combine(b)
     }
 
     fn visit_expr_funccall(
@@ -487,8 +536,8 @@ trait Visitor<'comp, 'a> {
         func: &'comp Box<Expression<'a>>,
         args: &'comp Vec<Expression<'a>>,
         rbracket: &T<()>,
-    ) {
-        self.walk_expr_funccall(expr, func, args, rbracket);
+    ) -> Ret {
+        self.walk_expr_funccall(expr, func, args, rbracket)
     }
     fn walk_expr_funccall(
         &mut self,
@@ -496,11 +545,12 @@ trait Visitor<'comp, 'a> {
         func: &'comp Box<Expression<'a>>,
         args: &'comp Vec<Expression<'a>>,
         rbracket: &T<()>,
-    ) {
-        self.visit_expr(func);
+    ) -> Ret {
+        let mut ret = self.visit_expr(func);
         for arg in args {
-            self.visit_expr(arg);
+            ret = ret.combine(self.visit_expr(arg));
         }
+        ret
     }
 
     fn visit_expr_if(
@@ -511,8 +561,8 @@ trait Visitor<'comp, 'a> {
         case_true: &'comp Box<Expression<'a>>,
         case_false: &'comp Box<Expression<'a>>,
         kw_end: &T<()>,
-    ) {
-        self.walk_expr_if(expr, kw_if, cond, case_true, case_false, kw_end);
+    ) -> Ret {
+        self.walk_expr_if(expr, kw_if, cond, case_true, case_false, kw_end)
     }
     fn walk_expr_if(
         &mut self,
@@ -522,26 +572,29 @@ trait Visitor<'comp, 'a> {
         case_true: &'comp Box<Expression<'a>>,
         case_false: &'comp Box<Expression<'a>>,
         kw_end: &T<()>,
-    ) {
-        self.visit_expr(cond);
-        self.visit_expr(case_true);
-        self.visit_expr(case_false);
+    ) -> Ret {
+        let a = self.visit_expr(cond);
+        let b = self.visit_expr(case_true);
+        let c = self.visit_expr(case_false);
+        a.combine(b.combine(c))
     }
 
     fn visit_expr_sequence(
         &mut self,
         expr: &'comp Expression<'a>,
         exprs: &'comp Vec<Expression<'a>>,
-    ) {
-        self.walk_expr_sequence(expr, exprs);
+    ) -> Ret {
+        self.walk_expr_sequence(expr, exprs)
     }
     fn walk_expr_sequence(
         &mut self,
         expr: &'comp Expression<'a>,
         exprs: &'comp Vec<Expression<'a>>,
-    ) {
+    ) -> Ret {
+        let mut ret = Ret::empty();
         for expr in exprs {
-            self.visit_expr(expr);
+            ret = ret.combine(self.visit_expr(expr));
         }
+        ret
     }
 }
