@@ -1,5 +1,13 @@
-x
+fib[10]
 where
-    x = y;
-    y = lambda x: x + 3
-    f = lambda val: val()
+    fib = \n →
+        if n then
+            if n - 1 then
+                fib[n - 1] + fib[n - 2]
+            else
+                1
+            end
+        else
+            0
+        end
+    ;
